@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Stethoscope, Activity, AlertCircle, Brain, Pill, Calendar, Mic } from 'lucide-react';
+import { Stethoscope, Activity, AlertCircle, Brain, Pill, Calendar, Mic, ClipboardList, Info, ChevronRight, TrendingUp, User as UserIcon } from 'lucide-react';
 import { apiClient } from '../services/apiClient';
 import { useSpeechInput } from '../hooks/useSpeechInput';
 import VisualSymptomPicker from '../components/diagnosis/VisualSymptomPicker';
@@ -14,7 +14,12 @@ import AnimatedStoryVideo from '../components/diagnosis/AnimatedStoryVideo';
 
 export default function DiagnosisPage({ lang, t, onDiagnosisComplete, onReportScan, savedReport }) {
   const [activeTab, setActiveTab] = useState('input');
-  // Vitals - marked as wearable device input
+
+  // Patient Context (Removes hardcoding)
+  const [age, setAge] = useState(45);
+  const [gender, setGender] = useState('Female');
+
+  // Vitals
   const [glucose, setGlucose] = useState(120);
   const [heartRate, setHeartRate] = useState(80);
   const [spo2, setSpo2] = useState(98);
@@ -28,6 +33,12 @@ export default function DiagnosisPage({ lang, t, onDiagnosisComplete, onReportSc
   const [diagnosisResults, setDiagnosisResults] = useState(null);
   const [reportScanData, setReportScanData] = useState(null);
 
+  // Merged Features
+  const [clinicalIntel, setClinicalIntel] = useState(null);
+  const [similarCases, setSimilarCases] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [report, setReport] = useState(null);
+
   const getLangCode = (code) => {
     const map = {
       'hi': 'hi-IN', 'te': 'te-IN', 'ta': 'ta-IN', 'kn': 'kn-IN',
@@ -39,149 +50,52 @@ export default function DiagnosisPage({ lang, t, onDiagnosisComplete, onReportSc
   const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
   const speech = useSpeechInput(getLangCode(lang));
 
-  // Restore saved data when navigating back
   useEffect(() => {
     if (savedReport && !report) {
       setReport(savedReport);
       setActiveTab('result');
-      // Restore farm story and diagnosis results from saved report
+      if (savedReport.age) setAge(savedReport.age);
+      if (savedReport.gender) setGender(savedReport.gender);
       if (savedReport.farmStory) setFarmStory(savedReport.farmStory);
       if (savedReport.diagnosisResults) setDiagnosisResults(savedReport.diagnosisResults);
+      if (savedReport.similarCases) setSimilarCases(savedReport.similarCases);
+      if (savedReport.clinicalIntel) setClinicalIntel(savedReport.clinicalIntel);
     }
   }, [savedReport]);
 
   const handleSymptomSelect = (data) => {
     const text = typeof data === 'object' ? data.description : data;
-    const part = typeof data === 'object' ? data.latestPart : null;
     setSymptoms(text);
-
-    if (part) {
-      const partKey = part.toLowerCase();
-      const translatedPart = t[partKey.replace(' ', '_')];
-      const partName = translatedPart || part;
-      let msg = (t.bodyPart || "You selected {part}").replace('{part}', partName);
-      let question = "";
-      if (t.questions) {
-        if (partKey.includes('head')) question = t.questions.head;
-        else if (partKey.includes('chest')) question = t.questions.chest;
-        else if (partKey.includes('stomach')) question = t.questions.stomach;
-        else if (['arm', 'leg', 'hand', 'foot', 'legs', 'limbs'].some(x => partKey.includes(x))) question = t.questions.limbs;
-        else question = t.questions.general;
-      }
-      if (question) msg += " " + question;
-      setVoiceText(msg);
-    } else {
-      setVoiceText(`You said: ${text}. I am updating your symptoms.`);
-    }
+    setVoiceText(`You said: ${text}. Analyzing symptoms...`);
   };
 
-  const [loading, setLoading] = useState(false);
-  const [report, setReport] = useState(null);
-
-  // Handle report scan result - auto-trigger analysis
   const handleReportScan = (scanData) => {
-    console.log('📸 Report scan complete:', scanData);
     setReportScanData(scanData);
-    if (onReportScan) onReportScan(scanData); // Persist in App.jsx
-
-    // Auto-trigger diagnosis if we have scan data
-    if (scanData && scanData.success) {
-      autoAnalyzeFromReport(scanData);
-    }
+    if (onReportScan) onReportScan(scanData);
+    if (scanData && scanData.success) autoAnalyzeFromReport(scanData);
   };
 
-  // Auto-analyze from uploaded report
   const autoAnalyzeFromReport = (scanData) => {
-    const diseases = [];
-    if (scanData.key_findings) {
-      diseases.push({
-        name: scanData.report_type || 'Medical Finding',
-        probability: (scanData.severity || 5) / 10,
-        icd10: 'R69'
-      });
-    }
-
     const autoReport = {
       patient_id: `PAT-AUTO-${Date.now().toString(16).slice(-6).toUpperCase()}`,
       risk: scanData.severity >= 7 ? 'high' : scanData.severity >= 4 ? 'medium' : 'low',
       risk_score: scanData.severity || 5,
       confidence: 0.8,
       explanation: scanData.explanation || 'Analysis complete',
-      diseases: diseases,
-      featureImportance: [
-        { name: 'Report Analysis', value: 85, color: '#3b82f6' },
-        { name: 'Severity Level', value: (scanData.severity || 5) * 10, color: '#ef4444' },
-        { name: 'Key Findings', value: (scanData.key_findings?.length || 1) * 20, color: '#10b981' }
-      ],
-      fairnessMetrics: { overall_fairness_score: 90 },
+      diseases: [{ name: scanData.report_type || 'Finding', probability: 0.8 }],
       triage: scanData.severity >= 7 ? 'RED' : scanData.severity >= 4 ? 'YELLOW' : 'GREEN',
-      treatment_plan: {
-        medications: [],
-        procedures: [scanData.action_needed || 'Consult doctor'],
-        follow_up: 'As advised by doctor'
-      },
-      dietTips: [],
-      medicationGuide: '',
-      // Store report-specific data
-      reportType: scanData.report_type,
-      keyFindings: scanData.key_findings,
-      severityAnalogy: scanData.severity_analogy,
-      eatFoods: scanData.eat_foods,
-      avoidFoods: scanData.avoid_foods,
-      actionNeeded: scanData.action_needed,
-      isFromReport: true, // Flag to indicate this came from report scan
+      treatment_plan: { medications: [], procedures: [scanData.action_needed || 'Consult doctor'], follow_up: '1 week' },
+      isFromReport: true,
       timestamp: new Date().toISOString()
     };
-
     setReport(autoReport);
-    setFarmStory(scanData.severity_analogy || null);
-    setDiagnosisResults({
-      ...autoReport,
-      recommended_foods: scanData.eat_foods || [],
-      avoid_foods: scanData.avoid_foods || [],
-      severity: scanData.severity || 5,
-      diseases: diseases,
-      // Pass actual report findings to story video
-      reportExplanation: scanData.explanation,
-      reportFindings: scanData.key_findings,
-      reportType: scanData.report_type
-    });
-
+    setDiagnosisResults({ ...autoReport, recommended_foods: scanData.eat_foods || [], avoid_foods: scanData.avoid_foods || [] });
     setActiveTab('result');
-    onDiagnosisComplete?.({
-      ...autoReport,
-      farmStory: scanData.severity_analogy,
-      diagnosisResults: {
-        recommended_foods: scanData.eat_foods || [],
-        avoid_foods: scanData.avoid_foods || [],
-        severity: scanData.severity || 5,
-        diseases: diseases,
-        reportExplanation: scanData.explanation,
-        reportFindings: scanData.key_findings,
-        reportType: scanData.report_type,
-        isFromReport: true
-      }
-    });
   };
 
   const handleDiagnose = async () => {
     try {
       setLoading(true);
-      if (isOffline) {
-        const result = {
-          risk_level: 'MEDIUM',
-          triage: { color: 'YELLOW', action: 'Consult Doctor' },
-          confidence: 0.75,
-          explanation: 'Offline mode: Vitals suggest moderate risk.',
-          diseases: [{ name: 'Possible Viral Infection', probability: 0.7 }],
-          treatment_plan: { medications: [{ name: 'Paracetamol', dose: '500mg' }], procedures: [] },
-          feature_importance: {}
-        };
-        setReport(result);
-        setActiveTab('result');
-        onDiagnosisComplete?.(result);
-        return;
-      }
 
       const formData = new FormData();
       formData.append('glucose', glucose);
@@ -191,51 +105,43 @@ export default function DiagnosisPage({ lang, t, onDiagnosisComplete, onReportSc
       formData.append('spo2', spo2);
       formData.append('temperature', temperature);
       formData.append('symptoms', symptoms);
-      formData.append('age', 55);
-      formData.append('gender', 'Male');
-      formData.append('income', 25000);
+      formData.append('age', age);
+      formData.append('gender', gender);
       formData.append('language', lang);
 
+      // BRAIN SYNC
       const result = await apiClient.diagnose(formData);
-      console.log('✅ Diagnosis Result from Backend:', result);
+
+      let intel = null;
+      try {
+        intel = await apiClient.clinicalIntelligence({
+          age: age, temp: temperature, symptoms,
+          heart_rate: heartRate, bp: `${systolic}/${diastolic}`, o2: spo2
+        });
+      } catch (e) { console.warn('Clinical Intel failed', e); }
+
+      let cases = [];
+      try {
+        const casesRes = await apiClient.getSimilarCases(symptoms);
+        cases = casesRes.similar_cases || [];
+      } catch (e) { console.warn('Similar cases failed', e); }
 
       const mappedReport = {
+        ...result,
+        age, gender,
         patient_id: result.patient_id,
         risk: result.risk,
-        risk_score: result.risk_score,
-        confidence: result.confidence,
-        explanation: result.explanation,
-        dietTips: result.dietTips || [],
-        medicationGuide: result.medicationGuide || '',
-        diseases: result.diseases || [],
-        featureImportance: result.featureImportance || [],
-        fairnessMetrics: result.fairnessMetrics || {},
-        timestamp: result.timestamp,
         triage: result.risk === 'high' ? 'RED' : result.risk === 'medium' ? 'YELLOW' : 'GREEN',
-        treatment_plan: result.treatmentPlan || {
-          medications: [],
-          procedures: [],
-          follow_up: '1 week'
-        },
-        isFromReport: false, // This is from vitals/wearables
-        farmStory: result.farmStory,
-        diagnosisResults: {
-          recommended_foods: result.recommended_foods || [],
-          avoid_foods: result.avoid_foods || [],
-          severity: result.severity || result.risk_score || 5,
-          diseases: result.diseases || []
-        }
+        clinicalIntel: intel,
+        similarCases: cases,
+        isFromReport: false
       };
 
       setReport(mappedReport);
+      setClinicalIntel(intel);
+      setSimilarCases(cases);
+      setDiagnosisResults({ ...result, severity: result.risk_score || 5 });
       setFarmStory(result.farmStory || null);
-      setDiagnosisResults({
-        ...result,
-        recommended_foods: result.recommended_foods || [],
-        avoid_foods: result.avoid_foods || [],
-        severity: result.severity || result.risk_score || 5,
-        diseases: result.diseases || []
-      });
       setActiveTab('result');
       onDiagnosisComplete?.(mappedReport);
 
@@ -248,298 +154,244 @@ export default function DiagnosisPage({ lang, t, onDiagnosisComplete, onReportSc
     }
   };
 
-  const TriageBanner = ({ triage }) => {
-    const configs = {
-      RED: { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300', action: 'URGENT: Seek immediate medical attention', icon: '🚨' },
-      YELLOW: { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300', action: 'MODERATE: Consult doctor within 24-48 hours', icon: '⚠️' },
-      GREEN: { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300', action: 'LOW RISK: Follow recommended care plan', icon: '✅' }
-    };
-    const config = configs[triage] || configs.GREEN;
-    return (
-      <div className={`p-5 rounded-xl border-2 flex items-center gap-4 mb-6 ${config.bg} ${config.text} ${config.border}`}>
-        <div className="text-4xl">{config.icon}</div>
-        <div>
-          <div className="font-bold text-lg">Triage Level: {triage}</div>
-          <div className="text-sm font-medium">{config.action}</div>
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-bold flex items-center gap-3">
-        <Stethoscope size={32} className="text-blue-600" />
-        {activeTab === 'input' ? (t.diagnose || 'Diagnosis Input') : 'Analysis Results'}
-      </h1>
+    <div className="space-y-6 pb-12">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <h1 className="text-3xl font-bold flex items-center gap-3">
+          <Stethoscope size={32} className="text-blue-600" />
+          {activeTab === 'input' ? 'Diagnostic Hub' : 'Analysis Results'}
+        </h1>
+        {activeTab === 'result' && (
+          <div className="flex items-center gap-2 px-4 py-1.5 bg-green-100 text-green-700 rounded-full text-xs font-bold border border-green-200">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            BRAIN SYNC COMPLETE
+          </div>
+        )}
+      </div>
 
       <AnimatePresence mode='wait'>
         {activeTab === 'input' ? (
-          <motion.div
-            key="input"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="space-y-6"
-          >
-            {/* FEATURE 1: Village Vaidya Report Reader - AUTO ANALYZES ON UPLOAD */}
-            <ReportScanner
-              language={lang}
-              onResult={handleReportScan}
-            />
+          <motion.div key="input" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
 
-            {/* Vitals Form - WEARABLE DEVICE SECTION */}
+            {/* 1. Report Scanner (NEXUS_2) */}
+            <ReportScanner language={lang} onResult={handleReportScan} />
+
+            {/* 2. Patient Context (Removes Hardcoding) */}
             <div className="p-6 rounded-2xl bg-white shadow-sm border border-slate-100">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-red-100 rounded-lg"><Activity size={20} className="text-red-600" /></div>
-                  <div>
-                    <h3 className="font-bold">⌚ Wearable Device Readings</h3>
-                    <p className="text-xs text-slate-500">Connect a wearable or enter readings manually</p>
-                  </div>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-indigo-100 rounded-lg"><UserIcon size={20} className="text-indigo-600" /></div>
+                <div>
+                  <h3 className="font-bold">Patient Information</h3>
+                  <p className="text-xs text-slate-500">Essential context for accurate diagnosis</p>
                 </div>
-                <button
-                  onClick={() => setWearableConnected(!wearableConnected)}
-                  className={`px-4 py-2 rounded-full text-sm font-bold transition ${wearableConnected ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}
-                >
-                  {wearableConnected ? '✅ Connected' : '📡 Simulate Wearable'}
-                </button>
               </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-500">Glucose (mg/dL)</label>
-                  <input type="number" value={glucose} onChange={e => setGlucose(e.target.value)} className="w-full p-2 border rounded-lg font-bold" />
+                  <label className="text-xs font-bold text-slate-500 uppercase ml-1">Age</label>
+                  <input
+                    type="number"
+                    value={age}
+                    onChange={e => setAge(e.target.value)}
+                    className="w-full px-4 py-2 bg-slate-50 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-100 font-semibold"
+                  />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-500">Heart Rate (BPM)</label>
-                  <input type="number" value={heartRate} onChange={e => setHeartRate(e.target.value)} className="w-full p-2 border rounded-lg font-bold" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-500">SpO2 (%)</label>
-                  <input type="number" value={spo2} onChange={e => setSpo2(e.target.value)} className="w-full p-2 border rounded-lg font-bold" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-500">Temp (°F)</label>
-                  <input type="number" value={temperature} onChange={e => setTemperature(e.target.value)} className="w-full p-2 border rounded-lg font-bold" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-500">BP Systolic</label>
-                  <input type="number" value={systolic} onChange={e => setSystolic(e.target.value)} className="w-full p-2 border rounded-lg font-bold" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-500">BP Diastolic</label>
-                  <input type="number" value={diastolic} onChange={e => setDiastolic(e.target.value)} className="w-full p-2 border rounded-lg font-bold" />
+                  <label className="text-xs font-bold text-slate-500 uppercase ml-1">Gender</label>
+                  <select
+                    value={gender}
+                    onChange={e => setGender(e.target.value)}
+                    className="w-full px-4 py-2 bg-slate-50 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-100 font-semibold"
+                  >
+                    <option value="Female">Female</option>
+                    <option value="Male">Male</option>
+                    <option value="Other">Other</option>
+                  </select>
                 </div>
               </div>
             </div>
 
-            {/* Symptoms (Voice + Visual) */}
+            {/* 3. Vitals Hub (nexmed_ai integration) */}
+            <div className="p-6 rounded-2xl bg-white shadow-sm border border-slate-100">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-rose-100 rounded-lg"><Activity size={20} className="text-rose-600" /></div>
+                  <h3 className="font-bold">Live Sensor Telemetry</h3>
+                </div>
+                <button onClick={() => setWearableConnected(!wearableConnected)} className={`px-4 py-1.5 rounded-full text-xs font-bold transition ${wearableConnected ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-slate-100 text-slate-500'}`}>
+                  {wearableConnected ? '✅ SENSORS SYNCED' : '📡 SYNC SENSORS'}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {[
+                  { label: 'GLUCOSE', unit: 'mg/dL', val: glucose, set: setGlucose },
+                  { label: 'HR', unit: 'BPM', val: heartRate, set: setHeartRate },
+                  { label: 'SPO2', unit: '%', val: spo2, set: setSpo2 },
+                  { label: 'TEMP', unit: '°F', val: temperature, set: setTemperature },
+                  { label: 'SYSTOLIC', unit: 'mmHg', val: systolic, set: setSystolic },
+                  { label: 'DIASTOLIC', unit: 'mmHg', val: diastolic, set: setDiastolic },
+                ].map(vital => (
+                  <div key={vital.label} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">{vital.label} ({vital.unit})</label>
+                    <input type="number" value={vital.val} onChange={e => vital.set(e.target.value)} className="w-full bg-transparent font-black text-xl text-slate-900 border-none focus:outline-none" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 4. Symptoms (NEXUS_2 Storytelling integration) */}
             <div className="p-6 rounded-2xl bg-white shadow-sm border border-slate-100">
               <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-orange-100 rounded-lg"><AlertCircle size={20} className="text-orange-600" /></div>
-                <h3 className="font-bold">Symptoms (Tap body parts or speak)</h3>
+                <div className="p-2 bg-amber-100 rounded-lg"><ClipboardList size={20} className="text-amber-600" /></div>
+                <h3 className="font-bold">Tell Your Story</h3>
               </div>
-
               <VisualSymptomPicker onSymptomSelect={handleSymptomSelect} t={t} />
-
               <div className="flex gap-2 mt-6 pt-6 border-t border-slate-100">
                 <textarea
                   value={speech.transcript || symptoms}
                   onChange={(e) => { setSymptoms(e.target.value); speech.setTranscript(''); }}
-                  className="flex-1 p-3 border rounded-xl bg-slate-50 text-slate-500 text-sm"
-                  placeholder="Or type symptoms here if preferred..."
-                  rows={2}
+                  className="flex-1 p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-100 text-slate-700 text-sm font-medium"
+                  placeholder="Describe how you feel..." rows={3}
                 />
-                <button onClick={speech.isListening ? speech.stop : speech.start} className={`p-4 rounded-xl transition-all ${speech.isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-200 hover:bg-slate-300'}`}>
+                <button onClick={speech.isListening ? speech.stop : speech.start} className={`p-4 rounded-2xl transition-all ${speech.isListening ? 'bg-red-500 text-white animate-pulse shadow-lg' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                   <Mic size={24} />
                 </button>
               </div>
             </div>
 
-            <button
-              onClick={handleDiagnose}
-              disabled={loading}
-              className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-200"
-            >
-              {loading ? 'Running Multi-Modal Analysis...' : '⌚ Analyze Wearable + Symptom Data'}
+            <button onClick={handleDiagnose} disabled={loading} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xl hover:bg-black transition-all flex items-center justify-center gap-3 disabled:opacity-50 shadow-xl">
+              {loading ? <><div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> RUNNING BRAIN ANALYTICS...</> : <><Brain size={28} /> SYNC ONE BRAIN</>}
             </button>
           </motion.div>
         ) : (
-          <motion.div
-            key="result"
-            initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
-            className="space-y-6"
-          >
-            {loading && (
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-4 text-slate-600">Analyzing...</p>
-              </div>
-            )}
-
-            {!loading && report && (
-              <>
-                <TriageBanner triage={report.triage} />
-
-                {report.confidence !== undefined && (
-                  <ConfidenceMeter confidence={report.confidence} severity={report.risk || 'medium'} />
-                )}
-
-                {/* Report Findings Card - if from uploaded report */}
-                {report.isFromReport && report.keyFindings && (
-                  <div className="p-6 rounded-2xl bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200 shadow-sm">
-                    <h3 className="text-xl font-bold text-blue-800 mb-3">📋 {report.reportType || 'Report'} Analysis</h3>
-                    <div className="flex items-center gap-3 mb-4">
-                      <span className="text-3xl font-black text-red-600">{report.risk_score}/10</span>
-                      <span className="text-sm text-slate-600 italic">{report.severityAnalogy}</span>
-                    </div>
-                    <ul className="space-y-2 mb-4">
-                      {report.keyFindings.map((finding, i) => (
-                        <li key={i} className="flex items-start gap-2 text-slate-700">
-                          <span className="text-blue-500 mt-1">•</span>
-                          {finding}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="p-4 bg-white rounded-xl text-blue-900 leading-relaxed">
-                      <div className="flex items-center gap-2 mb-2 font-bold text-sm text-blue-700 uppercase">
-                        <Brain size={16} /> AI Explanation
+          <motion.div key="result" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 space-y-8">
+              {report && (
+                <>
+                  <div className={`p-8 rounded-[2.5rem] border-2 shadow-xl ${report.triage === 'RED' ? 'bg-red-50 border-red-200' : report.triage === 'YELLOW' ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                    <div className="flex items-center gap-6">
+                      <div className="text-6xl">{report.triage === 'RED' ? '🚨' : report.triage === 'YELLOW' ? '⚠️' : '✅'}</div>
+                      <div className="flex-1">
+                        <div className={`text-sm font-black uppercase tracking-widest ${report.triage === 'RED' ? 'text-red-700' : report.triage === 'YELLOW' ? 'text-amber-700' : 'text-emerald-700'}`}>Recommended Action</div>
+                        <div className="text-3xl font-black text-slate-900">{report.triage} PRIORITY</div>
+                        <p className="text-slate-600 font-medium mt-1">
+                          {report.triage === 'RED' ? 'Seek immediate medical attention.' : report.triage === 'YELLOW' ? 'Consult a doctor soon.' : 'Follow home care guidelines.'}
+                        </p>
                       </div>
-                      {report.explanation}
                     </div>
-                    {report.actionNeeded && (
-                      <div className="mt-3 p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-yellow-800 font-medium">
-                        ⚠️ {report.actionNeeded}
+                  </div>
+
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                      <Brain size={120} />
+                    </div>
+                    <h3 className="text-2xl font-black text-slate-900 mb-6 flex items-center gap-3">
+                      <TrendingUp size={24} className="text-blue-600" /> Diagnosis Explanation
+                    </h3>
+                    <div className="p-6 bg-slate-50 rounded-3xl text-slate-800 text-lg leading-relaxed font-semibold italic border-l-8 border-slate-900">
+                      "{report.explanation}"
+                    </div>
+                    {report.diseases?.length > 0 && (
+                      <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {report.diseases.map((d, i) => (
+                          <div key={i} className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm flex items-center justify-between">
+                            <div className="font-bold text-slate-800">{d.name}</div>
+                            <div className={`px-3 py-1 rounded-full text-xs font-black ${d.probability > 0.8 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                              {Math.round(d.probability * 100)}%
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
-                )}
 
-                {/* Farm Story Card */}
-                {farmStory && <FarmStoryCard story={farmStory} language={lang} />}
+                  {/* nexmed_ai Storytelling */}
+                  <AnimatedStoryVideo diagnosis={diagnosisResults} language={lang} />
 
-                {/* Animated Story Video - passes actual diagnosis data */}
-                <AnimatedStoryVideo diagnosis={diagnosisResults} language={lang} onComplete={() => console.log('Story video completed!')} />
-
-                {/* Living Thali Diet Plan */}
-                {diagnosisResults && (
+                  {/* NEXUS_2 Living Thali */}
                   <AnimatedThali
-                    eatFoods={diagnosisResults.recommended_foods || []}
-                    avoidFoods={diagnosisResults.avoid_foods || []}
+                    eatFoods={diagnosisResults?.recommended_foods || []}
+                    avoidFoods={diagnosisResults?.avoid_foods || []}
                     language={lang}
                   />
-                )}
+                  <MedicineVisualGuide />
+                </>
+              )}
+            </div>
 
-                <MedicineVisualGuide />
+            <div className="space-y-8">
+              <ConfidenceMeter confidence={report?.confidence || 0.85} severity={report?.risk || 'medium'} />
 
-                {/* Detected Conditions - for vitals-based diagnosis */}
-                {!report.isFromReport && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="p-6 bg-white rounded-2xl border border-slate-100 shadow-sm">
-                      <h3 className="font-bold text-lg mb-4">Detected Conditions</h3>
-                      <ul className="space-y-2">
-                        {report.diseases?.map((d, i) => (
-                          <li key={i} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
-                            <span className="font-medium">{d.name}</span>
-                            <span className={`px-2 py-1 rounded text-xs font-bold ${d.probability > 0.8 ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
-                              {Math.round(d.probability * 100)}% Match
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                      <div className="mt-4 p-4 bg-blue-50 rounded-xl text-blue-900 leading-relaxed">
-                        <div className="flex items-center gap-2 mb-2 font-bold text-sm text-blue-700 uppercase tracking-wider">
-                          <Brain size={16} /> AI Doctor Explanation
-                        </div>
-                        {report.explanation || "AI Explanation unavailable."}
-                      </div>
-                    </div>
-
-                    <div className="p-6 bg-white rounded-2xl border border-slate-100 shadow-sm">
-                      <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-                        <Pill size={20} className="text-green-600" /> Recommended Treatment
-                      </h3>
-                      {report.medicationGuide && (
-                        <div className="mb-4 p-3 bg-green-50 text-green-800 rounded-lg text-sm border border-green-100">
-                          <strong>💊 Guide: </strong> {report.medicationGuide}
-                        </div>
-                      )}
-                      {report.treatment_plan?.medications?.length > 0 ? (
-                        <ul className="space-y-3">
-                          {report.treatment_plan.medications.map((m, i) => (
-                            <li key={i} className="flex items-start gap-3">
-                              <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-2" />
-                              <div>
-                                <div className="font-bold text-slate-800">{m.name}</div>
-                                <div className="text-xs text-slate-500">{m.dose} • {m.frequency} • {m.duration}</div>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="text-slate-500 italic">No specific medications recommended.</p>
-                      )}
-                      {report.dietTips?.length > 0 && (
-                        <div className="mt-6">
-                          <h4 className="font-bold text-sm mb-2 text-slate-700">🥗 Lifestyle & Diet Tips</h4>
-                          <ul className="list-disc pl-5 text-sm text-slate-600 space-y-1">
-                            {report.dietTips.map((tip, i) => <li key={i}>{tip}</li>)}
-                          </ul>
-                        </div>
-                      )}
-                      <div className="mt-4 pt-4 border-t border-slate-100">
-                        <h4 className="font-semibold text-sm mb-2 flex items-center gap-2"><Calendar size={16} /> Next Steps</h4>
-                        <ul className="text-sm text-slate-600 space-y-1 list-disc pl-4 mb-2">
-                          {report.treatment_plan?.procedures?.map((p, i) => <li key={i}>{p}</li>)}
-                        </ul>
-                        <div className="text-sm font-medium text-blue-700 bg-blue-50 px-3 py-2 rounded-lg">
-                          Follow up in: {report.treatment_plan?.follow_up || 'As advised by doctor'}
-                        </div>
-                      </div>
-                    </div>
+              {clinicalIntel && (
+                <div className="p-8 bg-slate-900 text-white rounded-[2.5rem] shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 text-white/10"><Info size={80} /></div>
+                  <h4 className="text-xs font-black uppercase tracking-widest text-blue-400 mb-6">Clinical Intelligence</h4>
+                  <div className="flex items-center gap-4 mb-8">
+                    <div className="p-4 bg-white/10 rounded-2xl text-3xl font-black">{clinicalIntel.age_adjusted_analysis?.derived_vitals?.sirs_score || 0}<span className="text-xs opacity-50">/3</span></div>
+                    <div className="font-bold">SIRS Score<br /><span className="text-xs opacity-60 font-medium">Sepsis Screening</span></div>
                   </div>
-                )}
+                  {clinicalIntel.red_flags?.length > 0 && (
+                    <ul className="space-y-3">
+                      {clinicalIntel.red_flags.map((f, i) => (
+                        <li key={i} className="flex items-start gap-3 bg-red-500/10 p-3 rounded-xl border border-red-500/20">
+                          <AlertCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
+                          <span className="text-sm font-bold text-red-50">{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
 
-                {/* Diet Cards for report-based diagnosis */}
-                {report.isFromReport && report.eatFoods && (
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div className="bg-green-50 p-5 rounded-xl border-2 border-green-200">
-                      <h3 className="font-bold text-green-800 mb-3">🟢 Foods to Eat</h3>
-                      <div className="flex flex-wrap gap-2">
-                        {report.eatFoods.map((food, i) => (
-                          <span key={i} className="bg-green-200 text-green-900 px-3 py-1 rounded-full text-sm font-medium">{food}</span>
-                        ))}
+              {report?.similarCases?.length > 0 && (
+                <div className="p-8 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm">
+                  <h3 className="font-black text-xl text-slate-900 mb-6 flex items-center gap-2">
+                    <ClipboardList size={24} className="text-indigo-600" /> Similar Cases
+                  </h3>
+                  <div className="space-y-3">
+                    {report.similarCases.slice(0, 3).map((c, i) => (
+                      <div key={i} className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl">
+                        <div className="flex justify-between items-start mb-1">
+                          <div className="font-black text-slate-900 text-sm">{c.diagnosis}</div>
+                          <div className="text-[10px] font-black px-2 py-0.5 bg-indigo-600 text-white rounded-full">{c.similarity}%</div>
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-bold">{c.doctor} · {c.date.split('T')[0]}</div>
                       </div>
-                    </div>
-                    <div className="bg-red-50 p-5 rounded-xl border-2 border-red-200">
-                      <h3 className="font-bold text-red-800 mb-3">🔴 Foods to Avoid</h3>
-                      <div className="flex flex-wrap gap-2">
-                        {report.avoidFoods.map((food, i) => (
-                          <span key={i} className="bg-red-200 text-red-900 px-3 py-1 rounded-full text-sm font-medium">{food}</span>
-                        ))}
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                )}
+                </div>
+              )}
 
-                <button
-                  onClick={() => setActiveTab('input')}
-                  className="w-full py-3 bg-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-300"
-                >
-                  New Diagnosis
-                </button>
-              </>
-            )}
+              {report?.treatment_plan?.medications?.length > 0 && (
+                <div className="p-8 bg-emerald-900 text-white rounded-[2.5rem] shadow-xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 text-white/5"><Pill size={80} /></div>
+                  <h3 className="font-black text-xl mb-6">Care Plan</h3>
+                  <div className="space-y-4">
+                    {report.treatment_plan.medications.map((m, i) => (
+                      <div key={i} className="flex gap-4 p-3 bg-white/10 rounded-2xl border border-white/5">
+                        <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center font-bold">{i + 1}</div>
+                        <div>
+                          <div className="font-bold">{m.name}</div>
+                          <div className="text-[10px] opacity-70 font-bold uppercase">{m.dose} · {m.frequency}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button className="w-full mt-8 py-4 bg-white text-emerald-900 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-emerald-50 transition">
+                    Send SMS to Caretaker
+                  </button>
+                </div>
+              )}
+
+              <button onClick={() => setActiveTab('input')} className="w-full py-5 bg-slate-100 text-slate-600 font-black rounded-[2rem] hover:bg-slate-200 transition uppercase tracking-widest text-xs">
+                Run New Analysis
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
       <AnimatePresence>
         {activeTab === 'input' && (
-          <VoiceAvatar
-            key={lang}
-            textToSpeak={voiceText || t.voicePrompt || "Tap where it hurts on the body map, or speak to me."}
-            isListening={speech.isListening}
-            lang={lang}
-          />
+          <VoiceAvatar key={lang} textToSpeak={voiceText || "Brain synchronized. I am listening to your symptoms."} isListening={speech.isListening} lang={lang} />
         )}
       </AnimatePresence>
     </div>

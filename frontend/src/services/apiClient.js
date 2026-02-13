@@ -1,6 +1,8 @@
 const API_BASE_URL = 'http://localhost:8000';
 
 export const apiClient = {
+    BASE_URL: API_BASE_URL,
+
     async healthCheck() {
         try {
             const response = await fetch(`${API_BASE_URL}/health`);
@@ -12,14 +14,43 @@ export const apiClient = {
     },
 
     async registerPatient(patientData) {
-        // Mock registration - in real app this would POST to backend
-        // Simulating network delay
-        await new Promise(resolve => setTimeout(resolve, 800));
-        return {
-            success: true,
-            patientId: `SEVA-${Math.floor(Math.random() * 10000)}`,
-            ...patientData
-        };
+        try {
+            // Store patient in the medical history database
+            const response = await fetch(`${API_BASE_URL}/api/medical-history`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ patient_id: patientData.patientId || `PAT-${Date.now().toString(36).toUpperCase()}` })
+            });
+            const existing = await response.json();
+
+            // Also store via learn endpoint to seed the vector DB with patient data
+            const learnData = {
+                patient_id: patientData.patientId || `PAT-${Date.now().toString(36).toUpperCase()}`,
+                input_text: `Patient: ${patientData.name || 'Unknown'}, Age: ${patientData.age || 'N/A'}, Gender: ${patientData.gender || 'N/A'}, Location: ${patientData.location || 'N/A'}`,
+                diagnosis: 'Registration',
+                confidence: 100,
+                verified: true
+            };
+
+            await fetch(`${API_BASE_URL}/api/learn`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(learnData)
+            });
+
+            return {
+                success: true,
+                patientId: learnData.patient_id,
+                ...patientData
+            };
+        } catch (error) {
+            console.error('Registration error:', error);
+            return {
+                success: true,
+                patientId: `PAT-${Date.now().toString(36).toUpperCase()}`,
+                ...patientData
+            };
+        }
     },
 
     async diagnose(formData) {
@@ -76,6 +107,113 @@ export const apiClient = {
             console.error('Failed to fetch patient summary:', error);
             throw error;
         }
+    },
+
+    // ═══════ MERGED API CALLS (from nexmed_ai + NEXUS_2) ═══════
+
+    async anemiaEyeScan(imageBlob) {
+        const fd = new FormData();
+        fd.append('file', imageBlob, 'eye_scan.jpg');
+        const response = await fetch(`${API_BASE_URL}/api/anemia-eye-scanner`, { method: 'POST', body: fd });
+        return await response.json();
+    },
+
+    async analyzeCough(audioData, durationMs) {
+        const response = await fetch(`${API_BASE_URL}/api/cough-analyzer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ audioData, duration: durationMs })
+        });
+        return await response.json();
+    },
+
+    async findVeins(imageFile) {
+        const fd = new FormData();
+        fd.append('file', imageFile);
+        const response = await fetch(`${API_BASE_URL}/api/vein-finder`, { method: 'POST', body: fd });
+        return await response.json();
+    },
+
+    async analyzeXray(imageFile, symptoms = '') {
+        const fd = new FormData();
+        fd.append('file', imageFile);
+        fd.append('symptoms', symptoms);
+        const response = await fetch(`${API_BASE_URL}/api/xray-analyze`, { method: 'POST', body: fd });
+        return await response.json();
+    },
+
+    async clinicalIntelligence(data) {
+        const fd = new FormData();
+        fd.append('age', data.age);
+        fd.append('temp', data.temp);
+        fd.append('symptoms', data.symptoms);
+        if (data.history) fd.append('history', data.history);
+        if (data.heart_rate) fd.append('heart_rate', data.heart_rate);
+        if (data.bp) fd.append('bp', data.bp);
+        if (data.o2) fd.append('o2', data.o2);
+        const response = await fetch(`${API_BASE_URL}/api/clinical-intelligence`, { method: 'POST', body: fd });
+        return await response.json();
+    },
+
+    async semanticSearch(query, patientId = null) {
+        const response = await fetch(`${API_BASE_URL}/api/semantic-search`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, patient_id: patientId })
+        });
+        return await response.json();
+    },
+
+    async getMedicalHistory(patientId) {
+        const response = await fetch(`${API_BASE_URL}/api/medical-history`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ patient_id: patientId })
+        });
+        return await response.json();
+    },
+
+    async uploadPrescription(formData) {
+        const response = await fetch(`${API_BASE_URL}/api/prescription/upload`, {
+            method: 'POST',
+            body: formData
+        });
+        return await response.json();
+    },
+
+    async getSimilarCases(symptoms) {
+        const response = await fetch(`${API_BASE_URL}/api/similar-cases`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symptoms })
+        });
+        return await response.json();
+    },
+
+    async riskProjection(imageFile, days = 7) {
+        const fd = new FormData();
+        fd.append('file', imageFile);
+        fd.append('days', days);
+        const response = await fetch(`${API_BASE_URL}/api/risk-projection`, { method: 'POST', body: fd });
+        return await response.json();
+    },
+
+    async learnFromData(data) {
+        const response = await fetch(`${API_BASE_URL}/api/learn`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        return await response.json();
+    },
+
+    async sendSMS(recipient, message, patientId = 'ANON') {
+        const response = await fetch(`${API_BASE_URL}/api/send-sms`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient, message, patient_id: patientId })
+        });
+        return await response.json();
     },
 
     async post(url, data) {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Activity, Menu, X, Home, Stethoscope, FileText, Scale, IndianRupee, User, Users, Info, LogIn, MessageCircle } from 'lucide-react';
+import { Activity, Menu, X, Home, Stethoscope, FileText, Scale, IndianRupee, User, Users, Info, LogIn, MessageCircle, Wrench, ClipboardList } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Header({ lang, setLang }) {
@@ -12,7 +12,9 @@ export default function Header({ lang, setLang }) {
   const navItems = [
     { path: '/', label: 'Home', icon: <Home size={18} /> },
     { path: '/diagnosis', label: 'Diagnosis', icon: <Stethoscope size={18} /> },
-    { path: '/explainability', label: 'Explainability', icon: <FileText size={18} /> },
+    { path: '/tools', label: 'Tools', icon: <Wrench size={18} /> },
+    { path: '/history', label: 'History', icon: <ClipboardList size={18} /> },
+    { path: '/explainability', label: 'XAI', icon: <FileText size={18} /> },
     { path: '/fairness', label: 'Fairness', icon: <Scale size={18} /> },
     { path: '/doctor', label: 'Doctors', icon: <Users size={18} /> },
   ];

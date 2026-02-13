@@ -10,6 +10,8 @@ import LoanPage from './pages/LoanPage';
 import DoctorDashboardPage from './pages/DoctorDashboardPage';
 import KnowledgePage from './pages/KnowledgePage';
 import TestAllFeaturesPage from './pages/TestAllFeaturesPage';
+import ToolsPage from './pages/ToolsPage';
+import MedicalHistoryPage from './pages/MedicalHistoryPage';
 import Header from './components/layout/Header';
 import Footer from './components/layout/Footer';
 import { translations } from './utils/translations';
@@ -55,7 +57,7 @@ export default function App() {
     };
 
     return (
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
                 <Header lang={lang} setLang={setLang} />
 
@@ -147,6 +149,8 @@ export default function App() {
                         <Route path="/test-features" element={<TestAllFeaturesPage />} />
                         <Route path="/knowledge" element={<KnowledgePage lang={lang} t={t} />} />
                         <Route path="/profile" element={<ProfilePage lang={lang} t={t} accessibilityMode={accessibilityMode} />} />
+                        <Route path="/tools" element={<ToolsPage lang={lang} t={t} />} />
+                        <Route path="/history" element={<MedicalHistoryPage lang={lang} t={t} />} />
                     </Routes>
                 </main>
 
